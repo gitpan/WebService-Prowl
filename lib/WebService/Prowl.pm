@@ -2,10 +2,10 @@ package WebService::Prowl;
 
 use strict;
 use 5.008_001;
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 use LWP::UserAgent;
-use Crypt::SSLeay;
+use URI::Escape qw(uri_escape_utf8);
 use Carp qw(croak);
 
 my $API_BASE_URL = 'https://prowl.weks.net/publicapi/';
@@ -37,53 +37,56 @@ sub ua { $_[0]->{ua} }
 
 sub error { $_[0]->{error} }
 
+sub _build_url {
+    my ( $self, $method, %params ) = @_;
+    if ($method eq 'verify') {
+        return $API_BASE_URL . 'verify?apikey=' . $self->{apikey};
+    }
+    elsif ($method eq 'add') {
+        my @params = qw/priority application event description/;
+        my $req_params = +{ map { $_ => delete $params{$_} } @params };
+
+        croak("event name is required")       unless $req_params->{event};
+        croak("application name is required") unless $req_params->{application};
+        croak("description is required")      unless $req_params->{description};
+
+        $req_params->{priority} ||= 0;
+
+        croak("priority must be an integer value in the range [-2, 2]")
+            if ( $req_params->{priority} !~ /^-?\d+$/
+            || $req_params->{priority} < -2
+            || $req_params->{priority} > 2 );
+
+        my %query = (
+            apikey => $self->{apikey},
+            map { $_  => $req_params->{$_} } @params,
+        );
+        my @out;
+        for my $k (keys %query) {
+            push @out, sprintf("%s=%s", uri_escape_utf8($k), uri_escape_utf8($query{$k}));
+        }
+        my $q = join ('&', @out);
+        return $API_BASE_URL . 'add?' . $q;
+    }
+}
+
 sub add {
-    my ( $self, %params ) = @_;
-    my @params = qw/priority application event description/;
-    my $req_params = +{ map { $_ => delete $params{$_} } @params };
-
-    croak("event name is required")       unless $req_params->{event};
-    croak("application name is required") unless $req_params->{application};
-    croak("description is required")      unless $req_params->{description};
-
-    $req_params->{priority} ||= 0;
-
-    croak("priority must be an integer value in the range [-2, 2]")
-        if ( $req_params->{priority} !~ /^-?\d+$/
-        || $req_params->{priority} < -2
-        || $req_params->{priority} > 2 );
-
-    my $url = $API_BASE_URL . 'add?apikey=' . $self->{apikey} . '&';
-    $url .= join( '&', map { $_ . '=' . _ue( $req_params->{$_} ) } @params );
-
-    $self->_send_request($url);
+    my ( $self, %params, $cb ) = @_;
+    my $url = $self->_build_url('add', %params);
+    $self->_send_request($url, $cb);
 }
 
 sub verify {
     my ($self) = @_;
-
-    my $url = $API_BASE_URL . 'verify?apikey=' . $self->{apikey};
+    my $url = $self->_build_url('verify');
     $self->_send_request($url);
-}
-
-sub _ue {
-    my $str = shift;
-    $str =~ s/([^A-Za-z0-9])/sprintf("%%%02X", ord($1))/seg;
-    return $str;
 }
 
 sub _send_request {
     my ( $self, $url ) = @_;
     my $res = $self->{ua}->get($url);
-    my $data;
-    if (LIBXML) {
-        $data = XML::LibXML::Simple->new->XMLin( $res->content );
-    }
-    else {
-        $data = XML::Simple->new->XMLin( $res->content );
-    }
-
-    if ( $res->is_error ) {
+    my $data = $self->_xmlin($res->content);
+    if ($res->is_error) {
         $self->{error} =
               $data->{error}
             ? $data->{error}{code} . ': ' . $data->{error}{content}
@@ -91,6 +94,16 @@ sub _send_request {
         return;
     }
     return 1;
+}
+
+sub _xmlin {
+    my ( $self, $xml ) = @_;
+    if (LIBXML) {
+        return XML::LibXML::Simple->new->XMLin( $xml );
+    }
+    else {
+        return XML::Simple->new->XMLin( $xml );
+    }
 }
 
 1;
@@ -102,7 +115,7 @@ __END__
 
 =head1 NAME
 
-WebService::Prowl -
+WebService::Prowl - a interface to Prowl Public API
 
 =head1 SYNOPSIS
 

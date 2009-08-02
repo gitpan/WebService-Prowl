@@ -1,5 +1,5 @@
 ---
-abstract: ~
+abstract: 'a interface to Prowl Public API'
 author:
   - 'Masayoshi Sekimura <sekimura@cpan.org>'
 build_requires:
@@ -19,8 +19,9 @@ requires:
   Carp: 0
   Crypt::SSLeay: 0
   LWP::UserAgent: 0
+  URI::Escape: 0
   XML::Simple: 0
   perl: 5.8.1
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.02
+version: 0.03
